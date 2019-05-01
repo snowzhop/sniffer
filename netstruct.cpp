@@ -48,7 +48,6 @@ void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_ch
 
     std::cout << std::dec << "Packet count: " << ++count << std::endl;
     std::cout << "Received Packet size: " << pkthdr->len << std::endl;
-    // std::cout << "Caplen: " << pkthdr->caplen << std::endl;
     std::cout << std::endl;
 
     const ip_h* ipHeader = (ip_h*)(packet + ETH_HLEN);
