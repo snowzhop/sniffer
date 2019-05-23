@@ -80,13 +80,27 @@ void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_ch
         std::cout << "---" << std::endl;
     }
     else {
+        int packetCounter = 0;
         const u_char* payload = packet + ETH_HLEN + sizeIpHeader + sizeTcpHeader;
+        std::cout << std::endl << "\t";
         for(int i = 0; i < (pkthdr->len - (ETH_HLEN + sizeIpHeader + sizeTcpHeader)); i++) {
             if (isprint(packet[i])) {
                 std::cout << packet[i] << " ";
             }
             else {
                 std::cout << ". ";
+            }
+            packetCounter++;
+            switch (packetCounter) {
+                case 8: {
+                    std::cout << "  ";
+                    break;
+                }
+                case 16: {
+                    std::cout << std::endl << "\t";
+                    packetCounter = 0;
+                    break;
+                }
             }
         }
         std::cout << std::endl;
