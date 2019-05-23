@@ -41,5 +41,7 @@ struct tcp_h {
 
 void my_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* packet);
 void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* packet);
+uint16_t getPort(const u_char* packet);
+char* getHostAddr();
 
 #endif

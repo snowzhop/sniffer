@@ -1,6 +1,9 @@
 #include "netstruct.hpp"
 #include <pcap.h>
 #include <iostream>
+#include <netdb.h>
+#include <ifaddrs.h>
+#include <cstring>
 
 const u_char ETH_HLEN = 14;
 
@@ -41,7 +44,40 @@ uint16_t getPort(const u_char* packet) {
     return port;
 }
 
+char* getHostAddr() {
+    struct ifaddrs* ifaddr;
+    struct ifaddrs* ifa;
+    // char host[NI_MAXHOST];
+    char* host = new char[NI_MAXHOST];
+
+    if (getifaddrs(&ifaddr) == -1) {
+        std::cerr << "Error: getHostAddr(): getifaddrs" << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    for(ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr->sa_family == AF_INET && strcmp(ifa->ifa_name, "lo") != 0) {
+            int s = getnameinfo(ifa->ifa_addr, 
+                            sizeof(struct sockaddr_in),
+                            host,
+                            NI_MAXHOST, NULL,
+                            0,
+                            NI_NUMERICHOST);
+            if (s != 0) {
+                std::cerr << "Error: getHostAddr(): getnameinfo() failed: " << gai_strerror(s) << std::endl;
+                exit(EXIT_FAILURE);
+            }
+            return host;
+        }
+    }
+}
+
 void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* packet) {
+    // Vars for Bps analysis
+    struct timeval *old_ts = (struct timeval *)argc;
+    u_int delay;
+    int64_t bps;
+
     static int count = 0;
     char srcIp[INET_ADDRSTRLEN];
     char dstIp[INET_ADDRSTRLEN];
@@ -63,6 +99,9 @@ void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_ch
     if (inet_ntop(AF_INET, (in_addr*)&ipHeader->ip_dst.s_addr, dstIp, sizeof(dstIp)) == NULL) {
         std::cerr << "Trouble: inet_ntop(dst)" << std::endl;
     }
+
+    //Bps analysis
+    delay = (pkthdr->ts.tv_sec - old_ts->tv_sec) * 1000000 - old_ts->tv_usec + pkthdr->ts.tv_usec;
 
     std::cout << "IP header size: " << sizeIpHeader << std::endl; 
     std::cout << "TCP header size: " << sizeTcpHeader << std::endl;
