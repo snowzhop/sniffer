@@ -6,10 +6,8 @@
 #include "netstruct.hpp"
 
 int main(int argc, char **argv) {
-    std::cout << "Let's try pcap..." << std::endl;
-    std::cout << "Ethernet header = " << ETH_HLEN << std::endl;
+    std::cout << "Simple sniffer" << std::endl;
 
-    int i;
     char *dev;  // Название сетевого интерфейса
     char errbuf[PCAP_ERRBUF_SIZE];   // Буфер для текста ошибок
     pcap_t* descr;   // Идентификатор устройства
@@ -19,6 +17,17 @@ int main(int argc, char **argv) {
     struct bpf_program fp;  // Указатель на составленную версию фильтра
     bpf_u_int32 maskp;  // Маска сети, с которой работает данный фильтр
     bpf_u_int32 netp;   // ip
+
+    struct timeval st_ts;
+    int status = 0;
+    
+    char* address = getHostAddr();
+    std::cout << "Address: " << address << std::endl;
+    std::cout << "Addr len: " << strlen(address) << std::endl;
+
+    char* arguments = new char[sizeof(&st_ts) + strlen(address)];
+    memcpy(arguments, &st_ts, sizeof(&st_ts));
+    memcpy(arguments + sizeof(&st_ts), address, strlen(address) + 1);
 
     if (argc != 2) {
         std::cout << "Usage: " << argv[0] << " \"expression\"" << std::endl;
@@ -36,7 +45,7 @@ int main(int argc, char **argv) {
 
     descr = pcap_open_live(dev, BUFSIZ, 1, -1, errbuf);
     if(descr == NULL) {
-        std::cout << "pcap_open_live(): " << errbuf << std::endl;
+        std::cerr << "Error pcap_open_live(): " << errbuf << std::endl;
         exit(1);
     }
     std::cout << "Handle device name: " << pcap_datalink_val_to_name(pcap_datalink(descr)) << std::endl;
@@ -52,7 +61,9 @@ int main(int argc, char **argv) {
     }
 
     std::cout << "--------------" << std::endl;
-    int counter = pcap_loop(descr, -1, another_callback, NULL);
+    int counter = pcap_loop(descr, -1, another_callback, (u_char*)arguments);
+
+    pcap_close(descr);
 
     return 0;
 }
