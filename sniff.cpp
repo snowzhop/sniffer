@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
     }
 
     if (pcap_setfilter(descr, &fp) == -1) {
-        std::cerr << "Error setting filter" << std::endl;
+        std::cerr << "Filter setting error" << std::endl;
         exit(1);
     }
 
