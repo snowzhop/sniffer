@@ -3,6 +3,8 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netdb.h>
+#include <cstring>
 
 struct ip_h {
     u_char ip_vl; // Version number (4 bits) + header length (4 bits)
