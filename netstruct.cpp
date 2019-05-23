@@ -1,9 +1,7 @@
 #include "netstruct.hpp"
 #include <pcap.h>
 #include <iostream>
-#include <netdb.h>
 #include <ifaddrs.h>
-#include <cstring>
 
 const u_char ETH_HLEN = 14;
 
@@ -14,37 +12,37 @@ void my_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* p
     count++;
 }
 
-uint16_t getPort(const u_char* packet) {
-    char ports[2];
-    u_char* _packet = const_cast<u_char*>(packet);
+// uint16_t getPort(const u_char* packet) {  // Function for 
+//     char ports[2];
+//     u_char* _packet = const_cast<u_char*>(packet);
     
-    ports[0] = *_packet;
-    _packet++;
-    ports[1] = *_packet;
-    uint16_t port = port & ports[0];
-    port = port << 8;
-    port = port & ports[1];
-    port = ntohs(port);
-    std::cout << std::endl << "----------" << std::endl;
-    for(int j = 0; j < 2; j++) {
-        int i = 128; 
-        while(true) {
-            if (ports[j] & i) {
-                std::cout << "1";
-            }
-            else {
-                std::cout << "0";
-            }
-            if (i == 1) break;
-            i >>= 1;
-        }
-    }
-    std::cout << std::endl << "----------" << std::endl;
+//     ports[0] = *_packet;
+//     _packet++;
+//     ports[1] = *_packet;
+//     uint16_t port = port & ports[0];
+//     port = port << 8;
+//     port = port & ports[1];
+//     port = ntohs(port);
+//     std::cout << std::endl << "----------" << std::endl;
+//     for(int j = 0; j < 2; j++) {
+//         int i = 128; 
+//         while(true) {
+//             if (ports[j] & i) {
+//                 std::cout << "1";
+//             }
+//             else {
+//                 std::cout << "0";
+//             }
+//             if (i == 1) break;
+//             i >>= 1;
+//         }
+//     }
+//     std::cout << std::endl << "----------" << std::endl;
 
-    return port;
-}
+//     return port;
+// }
 
-char* getHostAddr() {
+char* getHostAddr() {   // Function for getting host address
     struct ifaddrs* ifaddr;
     struct ifaddrs* ifa;
     // char host[NI_MAXHOST];
@@ -72,9 +70,10 @@ char* getHostAddr() {
     }
 }
 
-void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* packet) {
+void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* packet) {  // Callback-func
     // Vars for Bps analysis
     struct timeval *old_ts = (struct timeval *)argc;
+    char* address = (char*)(argc + sizeof(old_ts));
     u_int delay;
     int64_t bps;
 
@@ -102,6 +101,19 @@ void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_ch
 
     //Bps analysis
     delay = (pkthdr->ts.tv_sec - old_ts->tv_sec) * 1000000 - old_ts->tv_usec + pkthdr->ts.tv_usec;
+    bps = (int64_t)(pkthdr->caplen * 1000000 / delay);
+
+    if (strcmp(dstIp, address) == 0) {
+        std::cout << "\tDownload speed: " << bps << " bytes per second | Delay: " 
+            << delay << " microseconds" << std::endl;
+    }
+    else {
+        std::cout << "\tUpload speed: " << bps << " bytes per second | Delay: " 
+            << delay << " microseconds" << std::endl;
+    }
+
+    old_ts->tv_sec = pkthdr->ts.tv_sec;
+    old_ts->tv_usec = pkthdr->ts.tv_usec;
 
     std::cout << "IP header size: " << sizeIpHeader << std::endl; 
     std::cout << "TCP header size: " << sizeTcpHeader << std::endl;
