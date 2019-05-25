@@ -1,7 +1,11 @@
-#include "netstruct.hpp"
 #include <pcap.h>
 #include <iostream>
 #include <ifaddrs.h>
+#include <unistd.h>
+#include <termios.h>
+#include <thread>
+
+#include "netstruct.hpp"
 
 const u_char ETH_HLEN = 14;
 
@@ -11,36 +15,6 @@ void my_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* p
     fflush(stdout);
     count++;
 }
-
-// uint16_t getPort(const u_char* packet) {  // Function for 
-//     char ports[2];
-//     u_char* _packet = const_cast<u_char*>(packet);
-    
-//     ports[0] = *_packet;
-//     _packet++;
-//     ports[1] = *_packet;
-//     uint16_t port = port & ports[0];
-//     port = port << 8;
-//     port = port & ports[1];
-//     port = ntohs(port);
-//     std::cout << std::endl << "----------" << std::endl;
-//     for(int j = 0; j < 2; j++) {
-//         int i = 128; 
-//         while(true) {
-//             if (ports[j] & i) {
-//                 std::cout << "1";
-//             }
-//             else {
-//                 std::cout << "0";
-//             }
-//             if (i == 1) break;
-//             i >>= 1;
-//         }
-//     }
-//     std::cout << std::endl << "----------" << std::endl;
-
-//     return port;
-// }
 
 char* getHostAddr() {   // Function for getting host address
     struct ifaddrs* ifaddr;
@@ -70,32 +44,33 @@ char* getHostAddr() {   // Function for getting host address
     }
 }
 
-void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* packet) {  // Callback-func
-    // Vars for Bps analysis
-    struct timeval *old_ts = (struct timeval *)argc;
-    char* address = (char*)(argc + sizeof(old_ts));
+void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, const u_char* packet) {
     u_int delay;
+    struct timeval *old_ts = (struct timeval*)argc;
+    // char* address = (char*)(argc + sizeof(struct timeval*));
     int64_t bps;
 
     static int count = 0;
     char srcIp[INET_ADDRSTRLEN];
     char dstIp[INET_ADDRSTRLEN];
+    int sizeTr = 0;
+    bool validProtocol = false;
 
+    // std::cout << std::dec << "Address: " << address << std::endl;
     std::cout << std::dec << "Packet count: " << ++count << std::endl;
     std::cout << "Received Packet size: " << pkthdr->len << std::endl;
-    std::cout << std::endl;
 
-    const ip_h* ipHeader = (ip_h*)(packet + ETH_HLEN);
+    const ip_h* ipHeader = (ip_h*)(packet + ETH_HLEN);  // IP
     int sizeIpHeader = ipHeader->getLen() * 4;
 
-    const tcp_h* tcpHeader = (tcp_h*)(packet + ETH_HLEN + sizeIpHeader);
-    int sizeTcpHeader = tcpHeader->getLen() * 4;
+    // const tcp_h* tcpHeader = (tcp_h*)(packet + ETH_HLEN + sizeIpHeader);  // TCP
+    // int sizeTcpHeader = tcpHeader->getLen() * 4;
     
-    if (inet_ntop(AF_INET, (in_addr*)&ipHeader->ip_src.s_addr, srcIp, sizeof(srcIp)) == NULL) {
+    if (inet_ntop(AF_INET, (in_addr*)&ipHeader->ip_src.s_addr, srcIp, sizeof(srcIp)) == NULL) { // IP
         std::cerr << "Trouble: inet_ntop(src)" << std::endl;
     }
 
-    if (inet_ntop(AF_INET, (in_addr*)&ipHeader->ip_dst.s_addr, dstIp, sizeof(dstIp)) == NULL) {
+    if (inet_ntop(AF_INET, (in_addr*)&ipHeader->ip_dst.s_addr, dstIp, sizeof(dstIp)) == NULL) { // IP
         std::cerr << "Trouble: inet_ntop(dst)" << std::endl;
     }
 
@@ -111,51 +86,138 @@ void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_ch
         std::cout << "\tUpload speed: " << bps << " bytes per second | Delay: " 
             << delay << " microseconds" << std::endl;
     }
+    std::cout << std::endl;
 
     old_ts->tv_sec = pkthdr->ts.tv_sec;
     old_ts->tv_usec = pkthdr->ts.tv_usec;
 
     std::cout << "IP header size: " << sizeIpHeader << std::endl; 
-    std::cout << "TCP header size: " << sizeTcpHeader << std::endl;
+    std::cout << "IP checksum: 0x" << std::hex << ipHeader->ip_chksm << std::dec << std::endl;
 
-    std::cout << "Address:" << std::endl;
-    std::cout << "\tSource:" << std::endl << "\t\t" << srcIp 
-                                        << "  " << ntohs(tcpHeader->tcp_srcp) << std::endl;
-    std::cout << "\tDestination: " << std::endl << "\t\t" << dstIp 
-                                        << "  " << ntohs(tcpHeader->tcp_dstp) << std::endl;
-
-    std::cout << "IP checksum: " << std::hex << ipHeader->ip_chksm << std::endl;
-    std::cout << "TCP checksum: " << tcpHeader->tcp_chksm << std::endl;
-    std::cout << "Payload: ";
-    if (ETH_HLEN + sizeIpHeader + sizeTcpHeader == pkthdr->len) {
-        std::cout << "---" << std::endl;
-    }
-    else {
-        int packetCounter = 0;
-        const u_char* payload = packet + ETH_HLEN + sizeIpHeader + sizeTcpHeader;
-        std::cout << std::endl << "\t";
-        for(int i = 0; i < (pkthdr->len - (ETH_HLEN + sizeIpHeader + sizeTcpHeader)); i++) {
-            if (isprint(packet[i])) {
-                std::cout << packet[i] << " ";
-            }
-            else {
-                std::cout << ". ";
-            }
-            packetCounter++;
-            switch (packetCounter) {
-                case 8: {
-                    std::cout << "  ";
-                    break;
-                }
-                case 16: {
-                    std::cout << std::endl << "\t";
-                    packetCounter = 0;
-                    break;
-                }
-            }
+    switch(ipHeader->ip_prt) {  // Protocol analysis
+        case 1: {
+            std::cout << std::endl << "Protocol: ICMP" << std::endl;
+            break;
         }
-        std::cout << std::endl;
+        case 2: {
+            std::cout << std::endl << "Protocol: IGMP" << std::endl;
+            break;
+        }
+        case 6: {
+            std::cout << std::endl << "Protocol: TCP" << std::endl;
+            const tcp_h* tcpHeader = (tcp_h*)(packet + ETH_HLEN + sizeIpHeader);  // TCP
+            sizeTr = tcpHeader->getLen() * 4;
+
+            std::cout << "TCP header size: " << sizeTr << std::endl;
+            std::cout << "Address:" << std::endl;
+            std::cout << "\tSource:" << std::endl << "\t\t" << srcIp 
+                                        << "  " << ntohs(tcpHeader->tcp_srcp) << std::endl;
+            std::cout << "\tDestination:" << std::endl << "\t\t" << dstIp 
+                                        << "  " << ntohs(tcpHeader->tcp_dstp) << std::endl;
+            std::cout << "TCP checksum: 0x" << std::hex << std::uppercase
+                                        << tcpHeader->tcp_chksm << std::dec << std::endl;
+            validProtocol = true;
+
+            break;
+        }
+        case 17: {
+            std::cout << std::endl << "Protocol: UDP" << std::endl;
+            const udp_h* udpHeader = (udp_h*)(packet + ETH_HLEN + sizeIpHeader);
+            sizeTr = udpHeader->getLen();
+
+            std::cout << "UDP header size: " << sizeTr << std::endl;
+            std::cout << "Address:" << std::endl;
+            std::cout << "\tSource:" << std::endl << "\t\t" << srcIp
+                                        << "  " << ntohs(udpHeader->udp_srcp) << std::endl;
+            std::cout << "\tDestination:" << std::endl << "\t\t" << dstIp
+                                        << "  " << ntohs(udpHeader->udp_dstp) << std::endl;
+            std::cout << "UDP checksum: 0x" << std::hex 
+                                        << udpHeader->udp_chks << std::dec << std::endl;
+            validProtocol = true;
+
+            break;
+        }
+        default: {
+            std::cout << "Protocol: Undefined" << std::endl;
+            break;
+        }
+    }
+
+    // std::cout << "TCP header size: " << sizeTcpHeader << std::endl;
+
+    // std::cout << "Address:" << std::endl;
+    // std::cout << "\tSource:" << std::endl << "\t\t" << srcIp 
+    //                                     << "  " << ntohs(tcpHeader->tcp_srcp) << std::endl;
+    // std::cout << "\tDestination: " << std::endl << "\t\t" << dstIp 
+    //                                     << "  " << ntohs(tcpHeader->tcp_dstp) << std::endl;
+
+    // std::cout << "TCP checksum: " << tcpHeader->tcp_chksm << std::endl;
+    if (validProtocol) {
+        std::cout << "Payload: ";
+        if (ETH_HLEN + sizeIpHeader + sizeTr == pkthdr->len) {
+            std::cout << "---" << std::endl;
+        }
+        else {
+            int byteCounter = 0;
+            int allbytes = 0;
+            const u_char* payload = packet + ETH_HLEN + sizeIpHeader + sizeTr;
+            std::cout << std::endl << "\t";
+            for(int i = 0; i < (pkthdr->len - (ETH_HLEN + sizeIpHeader + sizeTr)); i++) {
+                if (isprint(packet[i])) {
+                    std::cout << packet[i] << " ";
+                }
+                else {
+                    std::cout << ". ";
+                }
+                allbytes++;
+                byteCounter++;
+                switch (byteCounter) {
+                    case 8: {
+                        std::cout << "  ";
+                        break;
+                    }
+                    case 16: {
+                        std::cout << std::endl << "\t";
+                        byteCounter = 0;
+                        break;
+                    }
+                }
+                if (allbytes > 1560) { break; }
+            }
+            std::cout << std::endl;
+        }
     }
 
     std::cout << "_____________" << std::endl << std::endl;
+}
+
+void catch_next(pcap_t* descr, u_char* argc) {
+    const u_char* packet;
+    struct pcap_pkthdr* pkthdr;
+    int counter = 0;
+    int res = -1;
+    char* address = getHostAddr();
+    char stopLogging = 0;
+
+    std::thread keyCheckThd(readInputKey, std::ref(stopLogging));
+    keyCheckThd.detach();
+
+    while(!stopLogging) {
+        memset(&pkthdr, 0, sizeof(pkthdr));
+        if ( (res = pcap_next_ex(descr, &pkthdr, &packet)) == 1) {
+            packetSniffing(address, argc, pkthdr, packet);
+            counter++;
+        } 
+    }
+}
+
+void readInputKey(char &key) {
+    termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+
+    newt.c_lflag = ~ (ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    key = getchar();
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
 }

@@ -41,9 +41,23 @@ struct tcp_h {
     }
 };
 
+struct udp_h {
+    u_short udp_srcp; // Source port
+    u_short udp_dstp; // Destination port
+    u_short udp_length; // Length
+    u_short udp_chks; // Checksum
+
+    u_short getLen() const {
+        return ntohs(udp_length);
+    }
+};
+
 void my_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* packet);
-void another_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* packet);
+void another_callback(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, const u_char* packet);
+void catch_next(pcap_t* descr, u_char* argc);
 uint16_t getPort(const u_char* packet);
 char* getHostAddr();
+
+void readInputKey(char &key);
 
 #endif
