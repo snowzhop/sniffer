@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <cstring>
+#include <list>
 
 struct ip_h {
     u_char ip_vl; // Version number (4 bits) + header length (4 bits)
@@ -52,12 +53,19 @@ struct udp_h {
     }
 };
 
+struct arg {
+    struct timeval time;
+    int32_t size;
+};
+
 void my_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* packet);
-void another_callback(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, const u_char* packet);
-void catch_next(pcap_t* descr, u_char* argc);
+void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, const u_char* packet, std::list<int64_t> &delayList);
+void capture_next(pcap_t* descr, u_char* argc);
 uint16_t getPort(const u_char* packet);
 char* getHostAddr();
 
 void readInputKey(char &key);
+double average(std::list<int64_t> &list);
+void fileLog(std::list<int64_t> &list);
 
 #endif

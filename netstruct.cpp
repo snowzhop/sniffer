@@ -4,6 +4,9 @@
 #include <unistd.h>
 #include <termios.h>
 #include <thread>
+#include <list>
+#include <limits>
+#include <fstream>
 
 #include "netstruct.hpp"
 
@@ -44,13 +47,14 @@ char* getHostAddr() {   // Function for getting host address
     }
 }
 
-void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, const u_char* packet) {
+void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, const u_char* packet, std::list<int64_t> &delayList) {
     u_int delay;
-    struct timeval *old_ts = (struct timeval*)argc;
+    struct arg *old_ts = (struct arg*)argc;
     // char* address = (char*)(argc + sizeof(struct timeval*));
     int64_t bps;
 
     static int count = 0;
+
     char srcIp[INET_ADDRSTRLEN];
     char dstIp[INET_ADDRSTRLEN];
     int sizeTr = 0;
@@ -75,7 +79,7 @@ void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, con
     }
 
     //Bps analysis
-    delay = (pkthdr->ts.tv_sec - old_ts->tv_sec) * 1000000 - old_ts->tv_usec + pkthdr->ts.tv_usec;
+    delay = (pkthdr->ts.tv_sec - old_ts->time.tv_sec) * 1000000 - old_ts->time.tv_usec + pkthdr->ts.tv_usec;
     bps = (int64_t)(pkthdr->caplen * 1000000 / delay);
 
     if (strcmp(dstIp, address) == 0) {
@@ -86,11 +90,12 @@ void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, con
         std::cout << "\tUpload speed: " << bps << " bytes per second | Delay: " 
             << delay << " microseconds" << std::endl;
     }
+
+    old_ts->time.tv_sec = pkthdr->ts.tv_sec;
+    old_ts->time.tv_usec = pkthdr->ts.tv_usec;
+    old_ts->size += pkthdr->len;
+
     std::cout << std::endl;
-
-    old_ts->tv_sec = pkthdr->ts.tv_sec;
-    old_ts->tv_usec = pkthdr->ts.tv_usec;
-
     std::cout << "IP header size: " << sizeIpHeader << std::endl; 
     std::cout << "IP checksum: 0x" << std::hex << ipHeader->ip_chksm << std::dec << std::endl;
 
@@ -142,16 +147,7 @@ void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, con
             break;
         }
     }
-
-    // std::cout << "TCP header size: " << sizeTcpHeader << std::endl;
-
-    // std::cout << "Address:" << std::endl;
-    // std::cout << "\tSource:" << std::endl << "\t\t" << srcIp 
-    //                                     << "  " << ntohs(tcpHeader->tcp_srcp) << std::endl;
-    // std::cout << "\tDestination: " << std::endl << "\t\t" << dstIp 
-    //                                     << "  " << ntohs(tcpHeader->tcp_dstp) << std::endl;
-
-    // std::cout << "TCP checksum: " << tcpHeader->tcp_chksm << std::endl;
+    
     if (validProtocol) {
         std::cout << "Payload: ";
         if (ETH_HLEN + sizeIpHeader + sizeTr == pkthdr->len) {
@@ -182,16 +178,16 @@ void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, con
                         break;
                     }
                 }
-                if (allbytes > 1560) { break; }
+                if (allbytes > 1600) { break; }
             }
             std::cout << std::endl;
         }
     }
-
+    delayList.push_back(delay);
     std::cout << "_____________" << std::endl << std::endl;
-}
+}   // packetSniffing(. . .)
 
-void catch_next(pcap_t* descr, u_char* argc) {
+void capture_next(pcap_t* descr, u_char* argc) {  // Packet capturing
     const u_char* packet;
     struct pcap_pkthdr* pkthdr;
     int counter = 0;
@@ -199,16 +195,54 @@ void catch_next(pcap_t* descr, u_char* argc) {
     char* address = getHostAddr();
     char stopLogging = 0;
 
+    std::list<int64_t> delay;
+
+    struct arg *old_ts = (struct arg*)argc;
+    old_ts->size = 0;
+
     std::thread keyCheckThd(readInputKey, std::ref(stopLogging));
     keyCheckThd.detach();
 
     while(!stopLogging) {
         memset(&pkthdr, 0, sizeof(pkthdr));
         if ( (res = pcap_next_ex(descr, &pkthdr, &packet)) == 1) {
-            packetSniffing(address, argc, pkthdr, packet);
+            packetSniffing(address, argc, pkthdr, packet, delay);
             counter++;
         } 
     }
+    
+    switch(stopLogging) {
+        case 's': {
+            // std::cout << "'s' pressed" << std::endl;
+            int counter = 1;
+            int64_t minDelay = __LONG_LONG_MAX__;
+            int64_t maxDelay = 0;
+            for(int64_t d: delay) {
+                if (counter > 1) { 
+                    if (d > maxDelay) {
+                        maxDelay = d;
+                    }
+                    else {
+                        if (d < minDelay) {
+                            minDelay = d;
+                        }
+                    }
+                }
+                counter++;
+            }
+
+            delay.pop_front();
+            // std::cout << std::endl << "average: " << std::endl << average(delay) << std::endl;
+            fileLog(delay);
+
+            break;
+        }
+        // case 'q': {
+        //     std::cout << "'q' pressed" << std::endl;
+        // }
+    }
+    std::cout << std::endl << counter << " packets captured" << std::endl;
+    std::cout << "Average packet length: " << old_ts->size / counter << std::endl;
 }
 
 void readInputKey(char &key) {
@@ -220,4 +254,115 @@ void readInputKey(char &key) {
     tcsetattr(STDIN_FILENO, TCSANOW, &newt);
     key = getchar();
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+}
+
+double average(std::list<int64_t> &list) {
+    int size = list.size();
+    double res = 0;
+    int counter = 1;
+    for(int64_t i: list) {
+        // std::cout << counter << ". " << (double)i / size << std::endl;
+        res += (double)i / size;
+        
+        counter++;
+    }
+    return res;
+}
+
+void fileLog(std::list<int64_t> &list) {
+    int* buckets = new int[13];
+    for(int i = 0; i < 13; i++) {
+        buckets[i] = 0;
+    }
+    std::ofstream output("log.csv", std::ios::out);
+    for(int64_t i: list) {
+        output << i << ";" << std::endl;
+        if (i <= 500) {
+            buckets[0]++;
+        }
+        else {
+            if (i >= 501 && i < 1001) {
+                buckets[1]++;
+            }
+            else {
+                if (i >= 1001 && i < 1501) {
+                    buckets[2]++;
+                }
+                else {
+                    if (i >= 1501 && i < 2501) {
+                        buckets[3]++;
+                    }
+                    else {
+                        if (i >= 2501 && i < 5001) {
+                            buckets[4]++;
+                        }
+                        else {
+                            if (i >= 5001 && i < 10001) {
+                                buckets[5]++;
+                            }
+                            else {
+                                if (i >= 10001 && i < 50001) { //
+                                    buckets[6]++;
+                                }
+                                else {
+                                    if (i >= 50001 && i < 100001) {
+                                        buckets[7]++;
+                                    }
+                                    else {
+                                        if (i >= 100001 && i < 150001) {
+                                            buckets[8]++;
+                                        }
+                                        else {
+                                            if (i >= 150001 && i < 300001) {
+                                                buckets[9]++;
+                                            }
+                                            else {
+                                                if (i >= 300001 && i < 500001) {
+                                                    buckets[10]++;
+                                                }
+                                                else {
+                                                    if (i >= 500001 && i < 1000001) {
+                                                        buckets[11]++;
+                                                    }
+                                                    else {
+                                                        if (i >= 1000001) {
+                                                            buckets[12]++;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    output << "average: " << average(list) << std::endl << "Buckets:" << std::endl;;
+    
+    /*
+    d <= 500
+    501 <= d < 1001
+    1001 <= d < 1501
+    1501 <= d < 2501
+    2501 <= d < 5001
+    5001 <= d < 10001
+    10001 <= d < 50001
+    50001 <= d < 100001
+    100001 <= d < 150001
+    150001 <= d < 300001
+    300001 <= d < 500001
+    500001 <= d < 1000001
+    d > 1000001
+    */
+
+    std::ofstream graph("loggraph.csv", std::ios::out);
+    for(int i = 0; i < 13; i++) {
+        graph << buckets[i] << std::endl;
+    }
+    output.close();
+    graph.close();
 }

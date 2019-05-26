@@ -18,9 +18,15 @@ int main(int argc, char **argv) {
     bpf_u_int32 maskp;  // Маска сети, с которой работает данный фильтр
     bpf_u_int32 netp;   // ip
     
-    struct timeval st_ts;
-    st_ts.tv_sec = 0l;
-    st_ts.tv_usec = 0l;
+    // struct timeval st_ts;
+    // st_ts.tv_sec = 0l;
+    // st_ts.tv_usec = 0l;
+
+    struct arg st_ts;
+    st_ts.time.tv_sec = 0l;
+    st_ts.time.tv_usec = 0l;
+    st_ts.size = 0;
+
     int status = 0;
     
     char* address = getHostAddr();
@@ -31,8 +37,8 @@ int main(int argc, char **argv) {
     // memcpy(arguments, &st_ts, sizeof(&st_ts));
     // memcpy(arguments + sizeof(&st_ts), address, strlen(address) + 1);
 
-    u_char* arguments = new u_char[sizeof(struct timeval*)];
-    memcpy(arguments, &st_ts, sizeof(struct timeval*));
+    u_char* arguments = new u_char[sizeof(struct arg*)];
+    memcpy(arguments, &st_ts, sizeof(struct arg*));
 
     if (argc != 2) {
         std::cout << "Usage: " << argv[0] << " \"expression\"" << std::endl;
@@ -67,7 +73,7 @@ int main(int argc, char **argv) {
 
     std::cout << "--------------" << std::endl;
     // int counter = pcap_loop(descr, -1, another_callback, arguments);
-    catch_next(descr, arguments);
+    capture_next(descr, arguments);
 
     pcap_close(descr);
 
