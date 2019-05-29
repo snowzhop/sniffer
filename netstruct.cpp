@@ -60,15 +60,11 @@ void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, con
     int sizeTr = 0;
     bool validProtocol = false;
 
-    // std::cout << std::dec << "Address: " << address << std::endl;
     std::cout << std::dec << "Packet count: " << ++count << std::endl;
     std::cout << "Received Packet size: " << pkthdr->len << std::endl;
 
     const ip_h* ipHeader = (ip_h*)(packet + ETH_HLEN);  // IP
     int sizeIpHeader = ipHeader->getLen() * 4;
-
-    // const tcp_h* tcpHeader = (tcp_h*)(packet + ETH_HLEN + sizeIpHeader);  // TCP
-    // int sizeTcpHeader = tcpHeader->getLen() * 4;
     
     if (inet_ntop(AF_INET, (in_addr*)&ipHeader->ip_src.s_addr, srcIp, sizeof(srcIp)) == NULL) { // IP
         std::cerr << "Trouble: inet_ntop(src)" << std::endl;
@@ -79,8 +75,14 @@ void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, con
     }
 
     //Bps analysis
-    delay = (pkthdr->ts.tv_sec - old_ts->time.tv_sec) * 1000000 - old_ts->time.tv_usec + pkthdr->ts.tv_usec;
-    bps = (int64_t)(pkthdr->caplen * 1000000 / delay);
+    try {
+        delay = (pkthdr->ts.tv_sec - old_ts->time.tv_sec) * 1000000 - old_ts->time.tv_usec + pkthdr->ts.tv_usec;
+        bps = (int64_t)(pkthdr->caplen * 1000000 / delay);
+    }
+    catch(...) {
+        std::cout << "Error: BPS BPS | delay = 0" << std::endl;
+        throw;
+    }
 
     if (strcmp(dstIp, address) == 0) {
         std::cout << "\tDownload speed: " << bps << " bytes per second | Delay: " 
@@ -91,9 +93,15 @@ void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, con
             << delay << " microseconds" << std::endl;
     }
 
-    old_ts->time.tv_sec = pkthdr->ts.tv_sec;
-    old_ts->time.tv_usec = pkthdr->ts.tv_usec;
-    old_ts->size += pkthdr->len;
+    try {
+        old_ts->time.tv_sec = pkthdr->ts.tv_sec;
+        old_ts->time.tv_usec = pkthdr->ts.tv_usec;
+        old_ts->size += pkthdr->len;
+    }
+    catch(...) {
+        std::cout << "Error: OLD TS OLD TS | delay = 0" << std::endl;
+        throw;
+    }
 
     std::cout << std::endl;
     std::cout << "IP header size: " << sizeIpHeader << std::endl; 
@@ -269,100 +277,56 @@ double average(std::list<int64_t> &list) {
     return res;
 }
 
+int64_t minElement(std::list<int64_t> list) {
+    int64_t min = __LONG_LONG_MAX__;
+    for(int64_t d: list) {
+        if (d < min) {
+            min = d;
+        }
+    }
+    return min;
+}
+
+int64_t maxElement(std::list<int64_t> list) {
+    int64_t max = 0;
+    for(int64_t d: list) {
+        if (d > max) {
+            max = d;
+        }
+    }
+    return max;
+}
+
 void fileLog(std::list<int64_t> &list) {
-    int* buckets = new int[13];
-    for(int i = 0; i < 13; i++) {
+    const int bSize = 50;
+    std::ofstream output("log.csv", std::ios::out);
+    std::ofstream graph("loggraph.csv", std::ios::out);
+
+    int* buckets = new int[bSize];
+    for(int i = 0; i < bSize; i++) {
         buckets[i] = 0;
     }
-    std::ofstream output("log.csv", std::ios::out);
-    for(int64_t i: list) {
-        output << i << ";" << std::endl;
-        if (i <= 500) {
-            buckets[0]++;
-        }
-        else {
-            if (i >= 501 && i < 1001) {
-                buckets[1]++;
-            }
-            else {
-                if (i >= 1001 && i < 1501) {
-                    buckets[2]++;
-                }
-                else {
-                    if (i >= 1501 && i < 2501) {
-                        buckets[3]++;
-                    }
-                    else {
-                        if (i >= 2501 && i < 5001) {
-                            buckets[4]++;
-                        }
-                        else {
-                            if (i >= 5001 && i < 10001) {
-                                buckets[5]++;
-                            }
-                            else {
-                                if (i >= 10001 && i < 50001) { //
-                                    buckets[6]++;
-                                }
-                                else {
-                                    if (i >= 50001 && i < 100001) {
-                                        buckets[7]++;
-                                    }
-                                    else {
-                                        if (i >= 100001 && i < 150001) {
-                                            buckets[8]++;
-                                        }
-                                        else {
-                                            if (i >= 150001 && i < 300001) {
-                                                buckets[9]++;
-                                            }
-                                            else {
-                                                if (i >= 300001 && i < 500001) {
-                                                    buckets[10]++;
-                                                }
-                                                else {
-                                                    if (i >= 500001 && i < 1000001) {
-                                                        buckets[11]++;
-                                                    }
-                                                    else {
-                                                        if (i >= 1000001) {
-                                                            buckets[12]++;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    output << "average: " << average(list) << std::endl << "Buckets:" << std::endl;;
-    
-    /*
-    d <= 500
-    501 <= d < 1001
-    1001 <= d < 1501
-    1501 <= d < 2501
-    2501 <= d < 5001
-    5001 <= d < 10001
-    10001 <= d < 50001
-    50001 <= d < 100001
-    100001 <= d < 150001
-    150001 <= d < 300001
-    300001 <= d < 500001
-    500001 <= d < 1000001
-    d > 1000001
-    */
 
-    std::ofstream graph("loggraph.csv", std::ios::out);
-    for(int i = 0; i < 13; i++) {
-        graph << buckets[i] << std::endl;
+    double dif = (double)(maxElement(list) - minElement(list)) / bSize;
+    std::cout << "Min: " << minElement(list) << std::endl 
+            << "Max: " << maxElement(list) << std::endl;
+    std::cout << "dif: " << dif << std::endl;
+
+    for(int64_t d: list) {
+        output << d << ";" << std::endl;
+        int temp = dif;
+        int counter = 0;
+        while(temp < d) {
+            counter++;
+            temp += dif;
+        }
+        buckets[counter]++;
     }
+
+    for(int i = 0; i < bSize; i++) {
+        graph << (double)buckets[i] / list.size() << ";" << std::endl;
+    }
+    
     output.close();
     graph.close();
 }
