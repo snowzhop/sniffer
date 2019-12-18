@@ -65,7 +65,9 @@ uint16_t getPort(const u_char* packet);
 char* getHostAddr();
 
 void readInputKey(char &key);
-double average(std::list<int64_t> &list);
-void fileLog(std::list<int64_t> &list);
+double average(const std::list<int64_t> &list);
+void fileLog(const std::list<int64_t> &list);
+void fileLogAndGraphCreating(const std::list<int64_t> &list);
+int* getBuckets(const std::list<int64_t> &list);
 
 #endif

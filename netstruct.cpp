@@ -7,10 +7,12 @@
 #include <list>
 #include <limits>
 #include <fstream>
+#include "discpp.h"
 
 #include "netstruct.hpp"
 
 const u_char ETH_HLEN = 14;
+const int bSize = 50;
 
 void my_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* packet) {
     static int count = 1;
@@ -22,7 +24,6 @@ void my_callback(u_char *argc, const struct pcap_pkthdr* pkthdr, const u_char* p
 char* getHostAddr() {   // Function for getting host address
     struct ifaddrs* ifaddr;
     struct ifaddrs* ifa;
-    // char host[NI_MAXHOST];
     char* host = new char[NI_MAXHOST];
 
     if (getifaddrs(&ifaddr) == -1) {
@@ -47,10 +48,10 @@ char* getHostAddr() {   // Function for getting host address
     }
 }
 
-void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, const u_char* packet, std::list<int64_t> &delayList) {
+void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, const u_char* packet,
+                                                                             std::list<int64_t> &delayList) {
     u_int delay;
     struct arg *old_ts = (struct arg*)argc;
-    // char* address = (char*)(argc + sizeof(struct timeval*));
     int64_t bps;
 
     static int count = 0;
@@ -77,7 +78,12 @@ void packetSniffing(char* address, u_char *argc, struct pcap_pkthdr* pkthdr, con
     //Bps analysis
     try {
         delay = (pkthdr->ts.tv_sec - old_ts->time.tv_sec) * 1000000 - old_ts->time.tv_usec + pkthdr->ts.tv_usec;
-        bps = (int64_t)(pkthdr->caplen * 1000000 / delay);
+        if (delay != 0) {
+            bps = (int64_t)(pkthdr->caplen * 1000000 / delay);
+        }
+        else {
+            std::cout << "OPUCH" << std::endl;
+        }
     }
     catch(...) {
         std::cout << "Error: BPS BPS | delay = 0" << std::endl;
@@ -221,9 +227,8 @@ void capture_next(pcap_t* descr, u_char* argc) {  // Packet capturing
     
     switch(stopLogging) {
         case 's': {
-            // std::cout << "'s' pressed" << std::endl;
             int counter = 1;
-            int64_t minDelay = __LONG_LONG_MAX__;
+            int64_t minDelay = std::numeric_limits<int64_t>::max();
             int64_t maxDelay = 0;
             for(int64_t d: delay) {
                 if (counter > 1) { 
@@ -240,17 +245,23 @@ void capture_next(pcap_t* descr, u_char* argc) {  // Packet capturing
             }
 
             delay.pop_front();
-            // std::cout << std::endl << "average: " << std::endl << average(delay) << std::endl;
+            std::cout << std::endl << "average: " << std::endl << average(delay) << std::endl;
             fileLog(delay);
 
             break;
         }
-        // case 'q': {
-        //     std::cout << "'q' pressed" << std::endl;
-        // }
+        case 'g': {
+            delay.pop_front();
+            fileLogAndGraphCreating(delay);
+            break;
+        }
     }
     std::cout << std::endl << counter << " packets captured" << std::endl;
-    std::cout << "Average packet length: " << old_ts->size / counter << std::endl;
+    
+    if (counter != 0) {
+        std::cout << "Average packet length: " << old_ts->size / counter << std::endl;
+    }
+    
 }
 
 void readInputKey(char &key) {
@@ -264,12 +275,11 @@ void readInputKey(char &key) {
     tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
 }
 
-double average(std::list<int64_t> &list) {
+double average(const std::list<int64_t> &list) {
     int size = list.size();
     double res = 0;
     int counter = 1;
     for(int64_t i: list) {
-        // std::cout << counter << ". " << (double)i / size << std::endl;
         res += (double)i / size;
         
         counter++;
@@ -278,7 +288,7 @@ double average(std::list<int64_t> &list) {
 }
 
 int64_t minElement(std::list<int64_t> list) {
-    int64_t min = __LONG_LONG_MAX__;
+    int64_t min = std::numeric_limits<int64_t>::max();
     for(int64_t d: list) {
         if (d < min) {
             min = d;
@@ -297,23 +307,86 @@ int64_t maxElement(std::list<int64_t> list) {
     return max;
 }
 
-void fileLog(std::list<int64_t> &list) {
-    const int bSize = 50;
+void fileLog(const std::list<int64_t> &list) {
     std::ofstream output("log.csv", std::ios::out);
     std::ofstream graph("loggraph.csv", std::ios::out);
 
-    int* buckets = new int[bSize];
+    int* buckets = nullptr;
+
+    // double dif = (double)(maxElement(list) - minElement(list)) / bSize;
+
+    std::cout << "Min: " << minElement(list) << std::endl 
+            << "Max: " << maxElement(list) << std::endl;
+
+    // for(int64_t d: list) {
+    //     output << d << ";" << std::endl;
+    //     int temp = dif;
+    //     int counter = 0;
+    //     while(temp < d) {
+    //         counter++;
+    //         temp += dif;
+    //     }
+    //     buckets[counter]++;
+    // }
+
+    buckets = getBuckets(list);
+
     for(int i = 0; i < bSize; i++) {
+        graph << (double)buckets[i] / list.size() << ";" << std::endl;
+    }
+    
+    output.close();
+    graph.close();
+    delete[] buckets;
+}
+
+void fileLogAndGraphCreating(const std::list<int64_t> &list) {
+    fileLog(list);
+    Dislin g;
+    double yLower[bSize];
+    double yUpper[bSize];
+    double x[bSize];
+
+    int* buckets = getBuckets(list);
+    for(int i = 0; i < bSize; ++i) {
+        yLower[i] = 0.0;
+        yUpper[i] = static_cast<double>(buckets[i]) / list.size();
+        x[i] = static_cast<double>(i) + 1.0;
+    }
+
+    g.scrmod("revers");
+    g.setpag("da4l");
+    g.metafl("cons");
+    g.disini();
+    // g.intax();
+    g.ticks(1, "x");
+    // g.axslen(2370, 1500);
+    // g.titlin("DELAY", 3);
+
+    double max = static_cast<double>(maxElement(list));
+
+    // g.labels("none", "x");
+    // g.labels("none", "y");
+    g.graf(0, bSize + 1, 0, 5, 0, 1, 0, 0.2);
+
+    g.labels("none", "bars");
+    g.labpos("outside", "bars");
+    g.color("red");
+    g.bars(x, yLower, yUpper, 10);
+
+    g.endgrf();
+    g.disfin();
+}
+
+int* getBuckets(const std::list<int64_t> &list) {
+    int* buckets = new int[bSize];
+    for(int i = 0; i < bSize; ++i) {
         buckets[i] = 0;
     }
 
     double dif = (double)(maxElement(list) - minElement(list)) / bSize;
-    std::cout << "Min: " << minElement(list) << std::endl 
-            << "Max: " << maxElement(list) << std::endl;
-    std::cout << "dif: " << dif << std::endl;
 
     for(int64_t d: list) {
-        output << d << ";" << std::endl;
         int temp = dif;
         int counter = 0;
         while(temp < d) {
@@ -323,10 +396,5 @@ void fileLog(std::list<int64_t> &list) {
         buckets[counter]++;
     }
 
-    for(int i = 0; i < bSize; i++) {
-        graph << (double)buckets[i] / list.size() << ";" << std::endl;
-    }
-    
-    output.close();
-    graph.close();
+    return buckets;
 }
